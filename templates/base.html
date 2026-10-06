@@ -1,0 +1,53 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#FFC72C">
+  <title>{% block title %}SchoolRun{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: "#FFC72C",
+            navy: "#0A2342",
+            safe: "#2E7D32",
+            warn: "#E65100",
+            danger: "#C62828",
+            page: "#F5F5F5",
+            ink: "#212121",
+            slate: "#757575",
+          },
+          fontFamily: { sans: ["Inter", "sans-serif"] },
+          borderRadius: { btn: "8px", card: "12px" },
+          boxShadow: { card: "0 2px 8px rgba(0,0,0,0.08)" },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="bg-page text-ink font-sans text-sm min-h-screen">
+  <header class="bg-navy text-white">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+      <a href="{% url 'home' %}" class="text-2xl font-bold text-brand">SchoolRun</a>
+      {% if user.is_authenticated %}
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-white/70">{{ user.get_full_name|default:user.username }} · {{ user.get_role_display }}</span>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button class="text-xs underline">Log out</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

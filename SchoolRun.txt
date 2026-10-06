@@ -1,0 +1,551 @@
+SchoolRun
+A PWA school bus management platform for Nigerian private schools — giving schools real-time fleet visibility and parents real-time tracking of their children.
+
+1. Project Overview
+SchoolRun is a school bus management system built on a Django backend and a Progressive Web App (PWA) frontend. It connects four roles — school administrators, parents, drivers, and marshals — and provides real-time bus tracking, student check-in/check-out, route management, and parent notifications.
+
+Core target user: The 9-to-5 commuting parent at Nigerian private schools.
+
+Core value proposition: Solve the safety visibility and route efficiency problems in school bus operations through a software layer — giving schools auditable transport management at minimal cost, and giving parents real-time information about their child's location and status.
+
+MVP scope: Real-time bus tracking, student QR code check-in, parent Web Push notifications, school admin dashboard. Camera streaming and AI route optimization are deferred to later versions.
+
+2. Design Specification
+Color System
+Purpose	Hex	Notes
+Primary (SchoolRun Yellow)	#FFC72C	Nigerian legal school bus yellow. Used for brand, primary buttons, icons
+Secondary (Navy Trust)	#0A2342	Deep navy. Used for nav bars, headings, admin sidebar. Conveys trust
+Accent (Safety Green)	#2E7D32	Used for "boarded/dropped off" success states, online indicators
+Warning (Alert Orange)	#E65100	Used for delay alerts, route deviation warnings
+Danger (Danger Red)	#C62828	Used for error states, missed check-in alerts
+Background (Off-White)	#F5F5F5	Page background
+Card Background (White)	#FFFFFF	Content cards
+Body Text (Charcoal)	#212121	Primary text
+Secondary Text (Slate)	#757575	Helper info, timestamps
+Typography
+Level	Font	Size	Weight
+Brand title	Inter	24px	700
+Page title	Inter	20px	600
+Card title	Inter	16px	600
+Body	Inter	14px	400
+Helper text	Inter	12px	400
+Font loading: Google Fonts CDN, Inter:400,600,700.
+
+Visual Identity
+Logo concept: A simplified bus side profile with two white horizontal stripes at the bottom (matching the two white stripes required on Nigerian school buses by law), with a translucent shield outline above the bus.
+
+App icon: 144×144px and 512×512px PNG. Yellow background + navy blue bus icon.
+
+Theme color: #FFC72C (used for browser address bar and PWA splash screen).
+
+UI Component Rules
+Button radius: 8px
+
+Card radius: 12px
+
+Card shadow: 0 2px 8px rgba(0,0,0,0.08)
+
+Spacing system: 4px base (4/8/12/16/24/32)
+
+Map container height: 60vh on parent view, 400px on admin dashboard
+
+3. Technology Stack
+Backend
+Technology	Version	Purpose
+Python	3.11+	Runtime
+Django	5.0+	Web framework
+Django REST Framework	3.15+	REST API
+Django Channels	4.x	WebSocket real-time location push
+Daphne	4.x	ASGI server (required for Channels)
+PostgreSQL	15+	Primary database
+PostGIS	3.3+	Geofencing and spatial queries
+Redis	7+	Channels layer (WebSocket broadcast)
+Celery	5.3+	Async tasks (notifications, data cleanup)
+Celery Beat	5.3+	Scheduled tasks (30-day location cleanup)
+qrcode	7.4+	Student QR code generation
+pywebpush	2.x	Web Push notifications
+Pillow	10+	Image handling for QR codes
+django-environ	0.11+	Environment variable management
+Frontend
+Technology	Purpose
+Django Templates	Server-rendered page skeleton
+Tailwind CSS	Styling (via CDN or standalone build)
+Google Maps JavaScript API	Live map display, route drawing
+Google Maps Geocoding API	Convert student addresses to coordinates
+Web Push API + Service Worker	Parent notifications
+jsQR	QR code decoding in the browser
+IndexedDB	Offline location data buffer
+Vanilla JavaScript	Map interaction, WebSocket client
+Why Not React/Vue for the MVP?
+Django templates + vanilla JavaScript is sufficient for the MVP. Avoid introducing a frontend build toolchain to shorten development time. Migrate to React later if more complex state management is needed.
+
+Why Not PyZbar?
+QR scanning happens entirely in the browser using jsQR. PyZbar would require an extra system library (libzbar) and server-side image upload, which is unnecessary. The server only needs to generate QR codes (via the qrcode library), not decode them.
+
+4. Project Structure
+text
+schoolrun/
+├── manage.py
+├── requirements.txt
+├── .env.example
+├── docker-compose.yml
+├── schoolrun/
+│   ├── __init__.py
+│   ├── settings.py
+│   ├── urls.py
+│   ├── asgi.py          # Channels + WebSocket routing
+│   └── wsgi.py
+├── accounts/            # User auth and role management
+│   ├── models.py        # User (with role field)
+│   ├── views.py
+│   ├── urls.py
+│   └── templates/
+├── schools/             # School, route, and stop management
+│   ├── models.py        # School, Route, Stop
+│   ├── views.py
+│   ├── urls.py
+│   └── templates/
+├── students/            # Students, consent, and check-in records
+│   ├── models.py        # Student, ConsentRecord, CheckIn
+│   ├── views.py
+│   ├── urls.py
+│   └── templates/
+├── tracking/            # Real-time location tracking
+│   ├── consumers.py     # WebSocket consumer
+│   ├── routing.py       # WebSocket URL routing
+│   ├── views.py
+│   └── services.py      # Geofence / off-route detection
+├── notifications/       # Parent notifications
+│   ├── models.py        # PushSubscription, NotificationLog
+│   ├── services.py      # Web Push sending logic
+│   ├── tasks.py         # Celery tasks
+│   └── signals.py
+├── compliance/          # Driver/marshal credentials and permit tracking
+│   ├── models.py        # DriverCredential, VehiclePermit
+│   ├── tasks.py         # Expiry reminder Celery tasks
+│   └── views.py
+├── core/                # Shared utilities
+│   ├── models.py        # Abstract base classes
+│   ├── permissions.py   # Role permissions
+│   └── utils.py
+├── static/
+│   ├── js/
+│   │   ├── sw.js        # Service Worker
+│   │   ├── map.js       # Map interaction
+│   │   ├── scanner.js   # jsQR scanning
+│   │   └── websocket.js # WebSocket client
+│   ├── css/
+│   └── icons/           # PWA icons (144, 512)
+├── templates/
+│   ├── base.html        # Base layout (with template inheritance)
+│   ├── parent/
+│   ├── driver/
+│   ├── marshal/
+│   └── admin/
+└── media/
+    └── qrcodes/         # Student QR code images
+5. Data Models
+User (extends AbstractUser)
+Field	Type	Notes
+role	CharField	school_admin / parent / driver / marshal
+phone	CharField	Phone number (for notifications)
+school	ForeignKey	Associated school (admin, driver, marshal)
+Note: The marshal role is a first-class role. Marshals are assigned to routes and perform the student scanning. They are not drivers.
+
+School
+Field	Type	Notes
+name	CharField	School name
+address	TextField	Address
+location	PointField	PostGIS point (school coordinate)
+Route
+Field	Type	Notes
+school	ForeignKey	Owning school
+name	CharField	Route name (e.g. "Ikeja → Main Campus")
+driver	ForeignKey	Driver (User with role=driver)
+marshal	ForeignKey	Marshal (User with role=marshal)
+path	LineStringField	PostGIS LineString — the intended route path
+active	BooleanField	Is active
+Note: The path field stores the route geometry. This is what the 500m off-route alert is measured against.
+
+Stop
+Field	Type	Notes
+route	ForeignKey	Owning route
+name	CharField	Stop name
+location	PointField	PostGIS point
+order	IntegerField	Sequence
+Student
+Field	Type	Notes
+name	CharField	Student name
+parent	ForeignKey	Parent (User with role=parent)
+school	ForeignKey	School
+student_class	CharField	Class / grade (e.g. "Primary 4")
+stop	ForeignKey	Boarding/alighting stop
+qr_code	ImageField	QR code image
+active	BooleanField	Is enrolled
+Note on the class field: The field is named student_class, not class, because class is a reserved keyword in Python.
+
+ConsentRecord
+Field	Type	Notes
+student	OneToOneField	Student
+parent	ForeignKey	Parent who gave consent
+granted_at	DateTimeField	Timestamp
+policy_version	CharField	Version of privacy policy at time of consent
+ip_address	GenericIPAddressField	IP at time of consent
+Note: This table is required by NDPA 2023. Consent must be explicitly recorded, not inferred.
+
+DriverCredential
+Field	Type	Notes
+user	OneToOneField	Driver or marshal
+licence_number	CharField	Driver's licence number
+licence_expiry	DateField	Licence expiry date
+medical_expiry	DateField	Medical exam expiry date
+police_clearance_expiry	DateField	Police clearance expiry date
+VehiclePermit
+Field	Type	Notes
+school	ForeignKey	School
+permit_number	CharField	School Bus Operator's Permit number
+expiry_date	DateField	Permit expiry (3-year validity)
+Trip
+Field	Type	Notes
+route	ForeignKey	Route
+driver	ForeignKey	Driver
+marshal	ForeignKey	Marshal on duty
+status	CharField	scheduled / in_progress / completed
+started_at	DateTimeField	Departure time
+completed_at	DateTimeField	Arrival time
+CheckIn
+Field	Type	Notes
+student	ForeignKey	Student
+trip	ForeignKey	Trip
+type	CharField	board / dropoff
+timestamp	DateTimeField	Check-in time
+location	PointField	PostGIS point — bus location at check-in
+LocationLog (location history, retained 30 days)
+Field	Type	Notes
+trip	ForeignKey	Trip
+location	PointField	PostGIS point
+timestamp	DateTimeField	Timestamp
+Index: Composite index on (trip, timestamp) for fast time-range queries.
+
+PushSubscription
+Field	Type	Notes
+user	ForeignKey	Parent
+endpoint	URLField	Push service endpoint
+p256dh	CharField	Public key
+auth	CharField	Auth secret
+created_at	DateTimeField	Timestamp
+Note: A parent can have multiple subscriptions (one per device). This table stores the subscription data needed by pywebpush.
+
+NotificationLog
+Field	Type	Notes
+user	ForeignKey	Recipient
+title	CharField	Notification title
+body	TextField	Notification body
+sent_at	DateTimeField	Timestamp
+status	CharField	sent / failed
+6. Core Feature Implementation
+6.1 Real-Time Location Tracking (WebSocket)
+Driver PWA logic:
+
+text
+Driver taps "Start Trip" → requests Geolocation permission →
+sends {lat, lng, trip_id} via WebSocket every 10 seconds →
+Django Channels consumer receives, writes to LocationLog, and broadcasts to parents subscribed to that route →
+Parent-side map Marker updates
+Key limitation: PWA cannot access GPS in the background on iOS Safari. The driver must keep the page in the foreground. During the MVP, display a clear prompt in the UI: "Please keep this page open to continue tracking."
+
+Technical implementation: Django Channels + Redis as the layer. Consumer uses AsyncJsonWebsocketConsumer, routed at /ws/tracking/<trip_id>/.
+
+ASGI server: Channels requires an ASGI server to run. Daphne is included in requirements.txt and is used to run the app in both development and production (daphne schoolrun.asgi:application). Django's runserver command will also serve ASGI when daphne is in INSTALLED_APPS, but production uses Daphne directly.
+
+6.2 Off-Route Detection (PostGIS)
+When a location update arrives, the backend checks the distance between the current position and the route's path LineString:
+
+python
+# tracking/services.py
+from django.contrib.gis.db.models.functions import Distance
+from django.contrib.gis.geos import Point
+from schools.models import Route
+
+OFF_ROUTE_THRESHOLD_M = 500
+
+def check_off_route(trip, lat, lng):
+    point = Point(lng, lat, srid=4326)
+    route = trip.route
+    distance = route.path.distance(point) * 111_320  # degrees to meters (approx)
+    if distance > OFF_ROUTE_THRESHOLD_M:
+        return True, distance
+    return False, distance
+Note: For accuracy, use PostGIS ST_Distance with a projected coordinate system rather than the degree-to-meter approximation. The approximation is acceptable for the MVP.
+
+6.3 Student QR Code Check-In
+QR code generation (at student registration):
+
+python
+# students/services.py
+import qrcode
+from io import BytesIO
+from django.core.files import File
+
+def generate_student_qr(student):
+    qr = qrcode.QRCode(box_size=10, border=2)
+    qr.add_data(str(student.id))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')
+    filename = f"qr_{student.id}.png"
+    student.qr_code.save(filename, File(buffer), save=True)
+Check-in flow:
+
+text
+Marshal opens PWA → taps "Scan Student" → opens camera →
+jsQR decodes the QR in the browser → frontend gets student_id →
+POST /api/checkin/ {student_id, trip_id, type} →
+Django records CheckIn → triggers Celery task to send Web Push →
+Parent receives notification: "[Student name] boarded at 07:42"
+Why QR codes instead of NFC: iOS Safari does not support Web NFC. NFC is essentially unusable in a PWA. QR codes only need camera permission, which PWAs support, and printing costs are minimal.
+
+6.4 Parent Web Push Notifications
+Notification triggers:
+
+Bus is < 5 minutes from the student's stop (calculated from live location and stop coordinates)
+
+Student boards successfully (check-in)
+
+Student alights successfully (check-out)
+
+Bus deviates > 500m from route (PostGIS geofence)
+
+Technical implementation: Service Worker registration + Push API. Subscription data is stored in the PushSubscription table. Celery tasks send notifications via pywebpush. After the parent grants notification permission in the PWA, they receive notifications even when the app is closed.
+
+6.5 Google Maps Integration
+API key management: Store in environment variables, pass via Django template:
+
+python
+# settings.py
+GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY')
+html
+<!-- templates/parent/map.html -->
+<script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap" async defer></script>
+Google Maps APIs used:
+
+Maps JavaScript API: Map display, Markers, route drawing
+
+Geocoding API: Convert student addresses to coordinates (at registration)
+
+Distance Matrix API: ETA calculation (optional — can be estimated manually during the MVP)
+
+6.6 PWA Configuration
+manifest.json:
+
+json
+{
+  "name": "SchoolRun",
+  "short_name": "SchoolRun",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F5F5",
+  "theme_color": "#FFC72C",
+  "icons": [
+    { "src": "/static/icons/icon-144.png", "sizes": "144x144", "type": "image/png" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
+Service Worker: Caches static assets and map tiles. IndexedDB buffers offline location data.
+
+6.7 Scheduled Cleanup (Celery Beat)
+The 30-day location retention policy is enforced by a Celery Beat scheduled task:
+
+python
+# tracking/tasks.py
+from celery import shared_task
+from django.utils import timezone
+from datetime import timedelta
+from tracking.models import LocationLog
+
+@shared_task
+def purge_old_location_logs():
+    cutoff = timezone.now() - timedelta(days=30)
+    deleted, _ = LocationLog.objects.filter(timestamp__lt=cutoff).delete()
+    return f"Deleted {deleted} location logs"
+Celery Beat schedule (in settings.py):
+
+python
+CELERY_BEAT_SCHEDULE = {
+    'purge-old-location-logs': {
+        'task': 'tracking.tasks.purge_old_location_logs',
+        'schedule': crontab(hour=2, minute=0),  # daily at 2am
+    },
+    'check-credential-expiry': {
+        'task': 'compliance.tasks.check_credential_expiry',
+        'schedule': crontab(hour=6, minute=0),  # daily at 6am
+    },
+}
+Important: Celery Beat is a separate process from the Celery worker and must be started independently. See the startup section below.
+
+7. Compliance Requirements
+7.1 Child Data Protection (NDPA 2023)
+SchoolRun processes children's personal data and is strictly regulated by the Nigeria Data Protection Act 2023. The NDPC (Nigeria Data Protection Commission) explicitly emphasizes that platforms have a "Duty of Care" regarding children's data.
+
+Mandatory actions:
+
+Obtain explicit parental consent: At student registration, the parent must explicitly agree to data processing via a checked confirmation box. Silence does not constitute consent. Consent is recorded in the ConsentRecord table.
+
+Data minimization: Collect only necessary fields (name, class, stop, parent contact). Do not collect birthday, home address, or other non-essential data.
+
+Data retention policy:
+
+Location history (LocationLog): retained 30 days, auto-deleted by Celery Beat
+
+Check-in records (CheckIn): retained for one academic year
+
+QR codes: deleted after the student leaves the school
+
+Consent records: retained for the duration of enrollment plus 7 years (legal requirement)
+
+Privacy policy: Written in plain English explaining data use, retention period, and parent rights (access, deletion, withdrawal of consent).
+
+7.2 Nigerian School Bus Operating Standards
+According to NIS 716:2010 "School Bus Operating Guidelines":
+
+School buses must have a yellow base color + two white stripes, labeled "SCHOOL BUS"
+
+Drivers must have 5+ years of driving experience, no criminal record, and pass a medical exam
+
+Every vehicle must have a marshal on board
+
+Operators must hold a School Bus Operator's Permit (valid for 3 years)
+
+SchoolRun's software role: Sell as a compliance tool to schools — providing driver qualification expiry reminders (via the DriverCredential and VehiclePermit tables), trip log exports (for audits). The software itself does not replace legal compliance requirements; it helps schools meet them more easily.
+
+8. Development Roadmap (8 Weeks)
+Week	Task	Deliverable
+Week 1	Project init, Django settings, PostgreSQL + PostGIS setup, User model with 4 roles, auth	Loggable-in Django admin with all 4 roles
+Week 2	School/Route/Stop/Student models + CRUD API, ConsentRecord, QR code generation	Student registration with consent capture and QR generation
+Week 3	Django Channels + Redis + Daphne setup, WebSocket consumer, LocationLog with PostGIS, off-route detection	Simulated location push, off-route alert firing
+Week 4	Driver PWA: trip start/end, location reporting. Marshal PWA: QR scanning with jsQR, check-in flow	Testable on Android Chrome
+Week 5	Parent PWA: Google Maps integration, live Marker, ETA display, PushSubscription registration	Installable on phone, receives test push
+Week 6	School admin: dashboard, route management, check-in record view, DriverCredential/VehiclePermit CRUD	Admin can manage routes, view check-ins, track credential expiry
+Week 7	Web Push notification integration, Celery Beat scheduled tasks, end-to-end testing, compliance docs	Full flow working, 30-day cleanup running
+Week 8	Deployment (Docker + Daphne + Nginx), pilot school preparation	Server live, privacy policy ready
+9. Environment Setup
+.env.example
+text
+DEBUG=True
+SECRET_KEY=your-secret-key-here
+DATABASE_URL=postgres://user:pass@localhost:5432/schoolrun_db
+REDIS_URL=redis://localhost:6379/0
+GOOGLE_MAPS_API_KEY=your-google-maps-key
+VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PRIVATE_KEY=your-vapid-private-key
+Note: The database name in .env is schoolrun_db, matching the createdb command below.
+
+Local Startup — Linux / macOS
+bash
+# 1. Clone the project
+git clone <repo-url> && cd schoolrun
+
+# 2. Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure environment variables
+cp .env.example .env
+# Edit .env with actual values
+
+# 5. Create database (PostgreSQL + PostGIS must be installed first)
+createdb schoolrun_db
+psql schoolrun_db -c "CREATE EXTENSION postgis;"
+
+# 6. Run migrations
+python manage.py migrate
+
+# 7. Create superuser
+python manage.py createsuperuser
+
+# 8. Start development server (ASGI via Daphne)
+daphne schoolrun.asgi:application
+# Or, if daphne is in INSTALLED_APPS:
+# python manage.py runserver
+
+# 9. Start Celery worker (separate terminal)
+celery -A schoolrun worker --loglevel=info
+
+# 10. Start Celery Beat (separate terminal — required for scheduled cleanup)
+celery -A schoolrun beat --loglevel=info
+Local Startup — Windows
+powershell
+# 1. Clone the project
+git clone <repo-url> && cd schoolrun
+
+# 2. Create virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure environment variables
+copy .env.example .env
+# Edit .env with actual values
+
+# 5. Create database (PostgreSQL + PostGIS must be installed first)
+createdb schoolrun_db
+psql schoolrun_db -c "CREATE EXTENSION postgis;"
+
+# 6. Run migrations
+python manage.py migrate
+
+# 7. Create superuser
+python manage.py createsuperuser
+
+# 8. Start development server (ASGI via Daphne)
+daphne schoolrun.asgi:application
+
+# 9. Start Celery worker (separate terminal)
+celery -A schoolrun worker --loglevel=info
+
+# 10. Start Celery Beat (separate terminal)
+celery -A schoolrun beat --loglevel=info
+Note for Windows users: PostGIS on Windows requires the PostGIS bundle installer. Download it from the PostGIS website and run it against your PostgreSQL installation before creating the extension.
+
+requirements.txt
+text
+Django>=5.0,<5.1
+djangorestframework>=3.15
+channels>=4.0
+channels-redis>=4.2
+daphne>=4.0
+psycopg2-binary>=2.9
+redis>=5.0
+celery>=5.3
+qrcode>=7.4
+pywebpush>=2.0
+Pillow>=10.0
+django-environ>=0.11
+Note: python-dotenv is not included because django-environ handles environment variables and provides additional Django-specific helpers. Using both would be redundant.
+
+10. Testing Checklist
+Test Type	Tool	Coverage
+Unit tests	Django TestCase	Models, service functions, QR generation, off-route distance calculation
+Integration tests	pytest + pytest-django	API endpoints, WebSocket message flow, Celery task execution
+End-to-end	Playwright	Parent notification receipt, check-in flow, push subscription
+Map rendering	Manual testing	Google Maps load, Marker updates
+Compliance	Manual audit	Consent capture, 30-day cleanup, credential expiry reminders
+11. First Step After the MVP
+Find a pilot school. Do not wait for the product to be "perfect" before selling. An MVP that can demo real-time tracking + check-in notifications is enough to get a private school principal to agree to a one-term trial.
+
+The core value of a pilot school is real data:
+
+Actual route run times (input for the optimization algorithm)
+
+Real parent usage behavior (which notifications get opened/ignored)
+
+Real pain points from the school administrator
+
+With pilot data in hand, you'll be qualified to apply for the CcHUB EdTech Fellowship (up to $100,000 in funding).
+

@@ -1,0 +1,55 @@
+x-app: &app
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATABASE_URL: postgis://schoolrun:schoolrun@db:5432/schoolrun_db
+    REDIS_URL: redis://redis:6379/0
+  volumes:
+    - .:/app
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: schoolrun
+      POSTGRES_PASSWORD: schoolrun
+      POSTGRES_DB: schoolrun_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schoolrun -d schoolrun_db"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  web:
+    <<: *app
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *app
+    command: celery -A schoolrun worker --loglevel=info
+
+  beat:
+    <<: *app
+    command: celery -A schoolrun beat --loglevel=info --schedule /tmp/celerybeat-schedule
+
+volumes:
+  pgdata:

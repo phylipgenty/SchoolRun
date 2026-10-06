@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Log in · SchoolRun{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-8 bg-white rounded-card shadow-card p-6">
+  <h1 class="text-xl font-semibold text-navy mb-4">Log in</h1>
+  {% if form.errors %}
+    <p class="text-danger text-xs mb-3">Your username and password didn't match. Please try again.</p>
+  {% endif %}
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    <label class="block">
+      <span class="text-xs text-slate">Username</span>
+      <input name="username" autocomplete="username" required autofocus
+             class="mt-1 w-full border border-gray-300 rounded-btn px-3 py-2">
+    </label>
+    <label class="block">
+      <span class="text-xs text-slate">Password</span>
+      <input name="password" type="password" autocomplete="current-password" required
+             class="mt-1 w-full border border-gray-300 rounded-btn px-3 py-2">
+    </label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="w-full bg-brand text-navy font-semibold rounded-btn py-2">Log in</button>
+  </form>
+</div>
+{% endblock %}
